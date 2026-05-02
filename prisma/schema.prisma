@@ -1,0 +1,390 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ServiceCategory {
+  BRIDAL
+  NON_BRIDAL
+  PARTY
+  HAIR
+  LASHES
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+enum BookingHoldStatus {
+  ACTIVE
+  RELEASED
+  EXPIRED
+  CONVERTED
+}
+
+enum SlotType {
+  SERVICE
+  BUFFER
+}
+
+enum InquiryType {
+  CONTACT
+  CLASS
+  LARGE_GROUP
+}
+
+enum InquiryStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PortfolioCategory {
+  BRIDAL
+  NON_BRIDAL
+  PARTY
+  HAIR
+  LASHES
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(USER)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  refreshTokens    RefreshToken[]
+  adminSessions    AdminSession[]
+  adminAuditLogs   AdminAuditLog[]
+  bookings         Booking[]
+  bookingHolds     BookingHold[]
+  blockedSlots     BlockedSlot[]
+  statusChanges    BookingStatusHistory[] @relation("StatusChangedBy")
+  adminNotes       AdminNote[]
+  inquiries        ContactInquiry[]
+  reviews          Review[]               @relation("ReviewUser")
+  moderatedReviews Review[]               @relation("ReviewModeratedBy")
+  createdPortfolio Portfolio[]            @relation("PortfolioCreatedBy")
+  updatedPortfolio Portfolio[]            @relation("PortfolioUpdatedBy")
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model RefreshToken {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  adminSessionId String?  @map("admin_session_id") @db.Uuid
+  tokenHash      String   @map("token_hash")
+  expiresAt      DateTime @map("expires_at")
+  isRevoked      Boolean  @default(false) @map("is_revoked")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminSession AdminSession? @relation(fields: [adminSessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([adminSessionId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model AdminSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  deviceFingerprint String?   @map("device_fingerprint")
+  userAgent         String?   @map("user_agent")
+  ipAddress         String?   @map("ip_address")
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at")
+  elevatedUntil     DateTime? @map("elevated_until")
+  isActive          Boolean   @default(true) @map("is_active")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+  auditLogs     AdminAuditLog[]
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@index([deviceFingerprint])
+  @@map("admin_sessions")
+}
+
+model AdminAuditLog {
+  id                String    @id @default(uuid()) @db.Uuid
+  adminId           String    @map("admin_id") @db.Uuid
+  sessionId         String?   @map("session_id") @db.Uuid
+  action            String
+  entityType        String    @map("entity_type")
+  entityId          String?   @map("entity_id")
+  requestMethod     String    @map("request_method")
+  requestPath       String    @map("request_path")
+  requestId         String?   @map("request_id")
+  ipAddress         String?   @map("ip_address")
+  userAgent         String?   @map("user_agent")
+  deviceFingerprint String?   @map("device_fingerprint")
+  riskLevel         String?   @map("risk_level")
+  details           Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  admin   User          @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  session AdminSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([sessionId])
+  @@index([createdAt])
+  @@index([action])
+  @@index([riskLevel])
+  @@map("admin_audit_logs")
+}
+
+model Service {
+  id                  String          @id @default(uuid()) @db.Uuid
+  name                String
+  category            ServiceCategory
+  description         String?
+  durationMinutes     Int             @map("duration_minutes")
+  basePrice           Decimal?        @map("base_price") @db.Decimal(10, 2)
+  isActive            Boolean         @default(true) @map("is_active")
+  requiresManualQuote Boolean         @default(false) @map("requires_manual_quote")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  bookings Booking[]
+  bookingHolds BookingHold[]
+
+  @@index([category])
+  @@index([isActive])
+  @@map("services")
+}
+
+model Booking {
+  id                String        @id @default(uuid()) @db.Uuid
+  userId            String?       @map("user_id") @db.Uuid
+  serviceId         String        @map("service_id") @db.Uuid
+  fullName          String        @map("full_name")
+  email             String
+  phone             String?
+  address           String?
+  peopleCount       Int           @default(1) @map("people_count")
+  bookingDate       DateTime      @map("booking_date") @db.Date
+  startTime         DateTime      @map("start_time") @db.Time(0)
+  endTime           DateTime      @map("end_time") @db.Time(0)
+  bufferEndTime     DateTime      @map("buffer_end_time") @db.Time(0)
+  status            BookingStatus @default(PENDING)
+  adminNotesSummary String?       @map("admin_notes_summary")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  user          User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  service       Service                @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  slots         BookingSlot[]
+  statusHistory BookingStatusHistory[]
+  adminNotes    AdminNote[]
+  review        Review?
+  hold          BookingHold?            @relation("BookingHoldConvertedBooking")
+
+  @@index([userId])
+  @@index([serviceId])
+  @@index([bookingDate])
+  @@index([status])
+  @@map("bookings")
+}
+
+model BookingHold {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      String            @map("user_id") @db.Uuid
+  serviceId   String            @map("service_id") @db.Uuid
+  bookingId   String?           @unique @map("booking_id") @db.Uuid
+  bookingDate DateTime          @map("booking_date") @db.Date
+  startTime   DateTime          @map("start_time") @db.Time(0)
+  endTime     DateTime          @map("end_time") @db.Time(0)
+  peopleCount Int               @map("people_count")
+  expiresAt   DateTime          @map("expires_at")
+  status      BookingHoldStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  booking Booking? @relation("BookingHoldConvertedBooking", fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([serviceId])
+  @@index([bookingDate])
+  @@index([bookingDate, startTime, endTime])
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@map("booking_holds")
+}
+
+model BookingSlot {
+  id            String   @id @default(uuid()) @db.Uuid
+  bookingId     String   @map("booking_id") @db.Uuid
+  slotDate      DateTime @map("slot_date") @db.Date
+  slotStartTime DateTime @map("slot_start_time") @db.Time(0)
+  slotEndTime   DateTime @map("slot_end_time") @db.Time(0)
+  slotType      SlotType @default(SERVICE) @map("slot_type")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([slotDate])
+  @@index([slotDate, slotStartTime, slotEndTime])
+  @@map("booking_slots")
+}
+
+model BlockedSlot {
+  id          String   @id @default(uuid()) @db.Uuid
+  blockedDate DateTime @map("blocked_date") @db.Date
+  startTime   DateTime @map("start_time") @db.Time(0)
+  endTime     DateTime @map("end_time") @db.Time(0)
+  reason      String?
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([blockedDate])
+  @@map("blocked_slots")
+}
+
+model BookingStatusHistory {
+  id           String         @id @default(uuid()) @db.Uuid
+  bookingId    String         @map("booking_id") @db.Uuid
+  oldStatus    BookingStatus? @map("old_status")
+  newStatus    BookingStatus  @map("new_status")
+  changedById  String?        @map("changed_by") @db.Uuid
+  changeReason String?        @map("change_reason")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("StatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@map("booking_status_history")
+}
+
+model AdminNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  bookingId String   @map("booking_id") @db.Uuid
+  adminId   String?  @map("admin_id") @db.Uuid
+  noteText  String   @map("note_text")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  admin   User?   @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@map("admin_notes")
+}
+
+model ContactInquiry {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String?       @map("user_id") @db.Uuid
+  inquiryType InquiryType   @map("inquiry_type")
+  category    String?
+  subject     String?
+  message     String
+  peopleCount Int?          @map("people_count")
+  status      InquiryStatus @default(OPEN)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("contact_inquiries")
+}
+
+model Review {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String?      @map("user_id") @db.Uuid
+  bookingId     String       @unique @map("booking_id") @db.Uuid
+  rating        Int
+  reviewText    String?      @map("review_text")
+  status        ReviewStatus @default(PENDING)
+  reviewedAt    DateTime?    @map("reviewed_at")
+  moderatedById String?      @map("moderated_by") @db.Uuid
+  moderatedAt   DateTime?    @map("moderated_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  user        User?   @relation("ReviewUser", fields: [userId], references: [id], onDelete: SetNull)
+  booking     Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  moderatedBy User?   @relation("ReviewModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("reviews")
+}
+
+model Portfolio {
+  id           String            @id @default(uuid()) @db.Uuid
+  modelName    String            @map("model_name")
+  makeupType   String            @map("makeup_type")
+  description  String?
+  category     PortfolioCategory
+  imageUrl     String            @map("image_url")
+  videoUrl     String?           @map("video_url")
+  instagramUrl String?           @map("instagram_url")
+  isPublished  Boolean           @default(false) @map("is_published")
+  sortOrder    Int               @default(0) @map("sort_order")
+  createdById  String?           @map("created_by") @db.Uuid
+  updatedById  String?           @map("updated_by") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  createdBy User? @relation("PortfolioCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("PortfolioUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([isPublished])
+  @@index([sortOrder])
+  @@map("portfolio")
+}
+
+model LocalizedContent {
+  id         String   @id @default(uuid()) @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  fieldName  String   @map("field_name")
+  locale     String
+  value      String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId, locale])
+  @@map("localized_content")
+}
